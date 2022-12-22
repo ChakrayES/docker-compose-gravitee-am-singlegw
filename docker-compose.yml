@@ -1,0 +1,104 @@
+version: '3.5'
+
+networks:
+  sandbox-am-storage-net:
+  sandbox-am-frontend-net:
+      ipam:
+        driver: default
+        config:
+          - subnet: 172.11.0.0/16
+
+volumes:
+  portainer: {}
+  datamongo: {}
+
+services:
+  traefik:
+    image: traefik:v2.2
+    container_name: sandbox-traefik
+    ports:
+      - "90:80"
+      - "9090:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command:
+      - "--log.level=DEBUG"
+      - "--accessLog=true"
+      - "--accessLog.filePath=/logs/access.log"
+      - "--api.dashboard=true"
+      - "--api.insecure=true"
+      - "--providers.docker.swarmMode=false"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.http.address=:80"
+      - "--providers.file.directory=/configuration/"
+      - "--providers.file.watch=true"
+      - "--providers.docker.watch=true"
+      - "--metrics.prometheus=false"
+    networks:
+      sandbox-am-frontend-net:
+        ipv4_address: 172.11.1.1
+
+  mongodb-am:
+    image: mongo:4.2
+    container_name: sandbox-mongodb-am
+    volumes:
+      - datamongo:/data/db
+    networks:
+      - sandbox-am-storage-net
+
+  gateway-am:
+    image: graviteeio/am-gateway:3.19
+    container_name: sandbox-gateway-am
+    links:
+      - mongodb-am
+    depends_on:
+      - mongodb-am
+    environment:
+      - gravitee_management_mongodb_uri=mongodb://mongodb-am:27017/graviteeam?serverSelectionTimeoutMS=5000&connectTimeoutMS=5000&socketTimeoutMS=5000
+      - gravitee_oauth2_mongodb_uri=mongodb://mongodb-am:27017/graviteeam?serverSelectionTimeoutMS=5000&connectTimeoutMS=5000&socketTimeoutMS=5000
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.am-gw.rule=Host(`am-gw.demo.chakray.internal`)"
+      - "traefik.http.routers.am-gw.entrypoints=http"
+      - "traefik.http.routers.am-gw.tls=false"
+      - "traefik.http.services.am-gw.loadbalancer.server.port=8092" 
+    networks:
+      - sandbox-am-storage-net
+      - sandbox-am-frontend-net
+
+  management-am:
+    image: graviteeio/am-management-api:3.19
+    container_name: sandbox-management-am
+    links:
+      - mongodb-am
+    depends_on:
+      - mongodb-am
+    environment:
+      - gravitee_management_mongodb_uri=mongodb://mongodb-am:27017/graviteeam?serverSelectionTimeoutMS=5000&connectTimeoutMS=5000&socketTimeoutMS=5000
+      - gravitee_oauth2_mongodb_uri=mongodb://mongodb-am:27017/graviteeam?serverSelectionTimeoutMS=5000&connectTimeoutMS=5000&socketTimeoutMS=5000
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.am-api.rule=Host(`am-api.demo.chakray.internal`)"
+      - "traefik.http.routers.am-api.entrypoints=http"
+      - "traefik.http.routers.am-api.tls=false"
+      - "traefik.http.services.am-api.loadbalancer.server.port=8093" 
+    networks:
+      - sandbox-am-storage-net
+      - sandbox-am-frontend-net
+
+  webui-am:
+    image: graviteeio/am-management-ui:3.19
+    container_name: sandbox-webui-am
+    depends_on:
+      - management-am
+    environment:
+      - MGMT_API_URL=http://am-api.demo.chakray.internal:90
+      - MGMT_UI_URL=http://am-webui.demo.chakray.internal:90/am/ui
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.am-webui.rule=Host(`am-webui.demo.chakray.internal`)"
+      - "traefik.http.routers.am-webui.entrypoints=http"
+      - "traefik.http.routers.am-webui.tls=false"
+      - "traefik.http.services.am-webui.loadbalancer.server.port=8080" 
+    networks:
+      - sandbox-am-frontend-net

@@ -15,7 +15,7 @@ volumes:
 services:
   traefik:
     image: traefik:v2.2
-    container_name: sandbox-traefik
+    container_name: sandbox-am-traefik
     ports:
       - "90:80"
       - "9090:8080"
